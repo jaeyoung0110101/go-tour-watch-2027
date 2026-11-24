@@ -2,7 +2,7 @@ name: GO Tour tickets
 on:
   workflow_dispatch:
   schedule:
-    - cron: '13,43 * * * *'
+    - cron: '3-58/5 * * * *'
 concurrency: go-tour-monitor
 permissions:
   contents: write

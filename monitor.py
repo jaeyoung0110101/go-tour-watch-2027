@@ -1,6 +1,6 @@
 import json
 import os
-import re
+import hashlib
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -12,11 +12,11 @@ URL = "https://tickets.scopelyexplore.com/events/#/eventlisting?appId=pgo&return
 CITIES = {"LA": r"Los Angeles|로스앤젤레스|洛杉磯", "카오슝": r"Kaohsiung|가오슝|카오슝|高雄"}
 
 
-def notify(text):
+def notify(text, link=URL):
     endpoint = os.environ["NTFY_URL"].strip()
     if urlsplit(endpoint).scheme != "https":
         raise SystemExit("ntfy requires an HTTPS topic URL")
-    headers = {"Title": "Pokemon GO Tour", "Priority": "high", "Click": URL}
+    headers = {"Title": "Pokemon GO Tour", "Priority": "high", "Click": link}
     if os.getenv("NTFY_TOKEN"):
         headers["Authorization"] = "Bearer " + os.environ["NTFY_TOKEN"]
     try:
@@ -58,20 +58,37 @@ def check():
     return json.dumps(records, sort_keys=True)
 
 
+def snapshot():
+    result = {"tour": check()}
+    for language in ("ko", "en"):
+        base = f"https://pokemongo.com/{language}/news"
+        anchors = page(base).select("main a[href]")
+        news = {}
+        for a in anchors:
+            link = urljoin(base, a["href"])
+            if "/news/" in urlsplit(link).path and urlsplit(link).hostname == "pokemongo.com":
+                news[link] = a.get_text(" ", strip=True)
+        if not news:
+            raise ValueError("Empty news list")
+        result[language] = news
+        article = page(base + "/save-the-date-go-tour-2027")
+        body = article.find("article") or article.find("main")
+        result[language + "_article"] = [body.get_text(" ", strip=True), [a["href"] for a in body.select("a[href]")]]
+    for key in ("tour", "ko_article", "en_article"):
+        result[key] = hashlib.sha256(json.dumps(result[key]).encode()).hexdigest()
+    return result
+
+
 if __name__ == "__main__":
-    import hashlib
-    state_file = Path(".monitor-state")
-    previous = state_file.read_text().strip() if state_file.exists() else ""
-    try:
-        listing = check()
-    except Exception:
-        if previous != "error" or os.getenv("TEST") == "true":
-            notify("공식 행사 페이지 확인 실패.")
-        state_file.write_text("error")
-    else:
-        state = hashlib.sha256(listing.encode()).hexdigest()
-        if previous and previous != state:
-            notify("LA·카오슝 공식 행사 안내가 변경됐습니다. 눌러 티켓 판매 여부를 확인하세요.")
-        elif os.getenv("TEST") == "true" or previous == "error":
-            notify("공식 행사 안내 확인 성공. ntfy 연결이 정상입니다.")
-        state_file.write_text(state)
+    path = Path(".monitor-state")
+    previous = json.loads(path.read_text())
+    current = snapshot()
+    for lang in ("ko", "en"):
+        for link, title in current[lang].items():
+            if previous[lang].get(link) != title:
+                notify("공식 뉴스 업데이트 · " + title, link)
+    if any(current[k] != previous[k] for k in ("tour", "ko_article", "en_article")):
+        notify("GO Tour 공식 행사 안내가 변경됐습니다.")
+    if current == previous and os.getenv("TEST") == "true":
+        notify("공식 뉴스 및 GO Tour 행사 안내 확인 성공.")
+    path.write_text(json.dumps(current, sort_keys=True))
