@@ -1,0 +1,30 @@
+name: GO Tour tickets
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '13,43 * * * *'
+concurrency: go-tour-monitor
+permissions:
+  contents: write
+jobs:
+  check:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install selenium==4.29.0
+      - run: python monitor.py
+        env:
+          TICKET_COOKIES: ${{ secrets.TICKET_COOKIES }}
+          READY_TEXT: ${{ secrets.READY_TEXT }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          NTFY_URL: ${{ secrets.NTFY_URL }}
+          TEST: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Save notification state
+        run: |
+          git add .monitor-state
+          if ! git diff --cached --quiet; then
+            git -c user.name=monitor -c user.email=monitor@users.noreply.github.com commit -m "Update notification state"
+            git push
+          fi
