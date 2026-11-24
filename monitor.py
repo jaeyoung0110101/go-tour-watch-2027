@@ -5,11 +5,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-URL = "https://tickets.scopelyexplore.com/events/#/eventlisting?appId=pgo"
+URL = "https://tickets.scopelyexplore.com/events/#/eventlisting?appId=pgo&returnUrl=%2Feventlisting"
 CITIES = {"LA": r"Los Angeles|로스앤젤레스|洛杉磯", "카오슝": r"Kaohsiung|가오슝|카오슝|高雄"}
 
 
@@ -28,29 +27,35 @@ def notify(text):
         raise SystemExit("ntfy delivery failed") from None
 
 
+def page(url):
+    with urlopen(url, timeout=20) as response:
+        return BeautifulSoup(response.read(), "html.parser")
+
+
 def check():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    with webdriver.Chrome(options=options) as driver:
-        driver.set_page_load_timeout(35)
-        driver.get(URL)
-        for cookie in json.loads(os.environ["TICKET_COOKIES"]):
-            driver.add_cookie(cookie)
-        driver.get(URL)
-        ready = os.environ["READY_TEXT"].strip()
-        if not ready:
-            raise ValueError("Missing logged-in list marker")
-        def list_text(browser):
-            text = browser.find_element(By.TAG_NAME, "body").text
-            return text if ready in text else False
-        text = WebDriverWait(driver, 30).until(list_text)
-        # Keep nearby listing text so a later sale-status change can trigger again.
-        lines = text.splitlines()
-        matches = []
-        for index, line in enumerate(lines):
-            if any(re.search(pattern, line, re.I) for pattern in CITIES.values()):
-                matches.extend(lines[max(0, index-2):index+6])
-        return "\n".join(matches)
+    index = "https://pokemongo.com/en/featured-in-person-events"
+    records = {}
+    pages = {}
+    for tag in page(index).select('script[type="application/ld+json"]'):
+        event = json.loads(tag.get_text())
+        name = event.get("name", "")
+        if name not in {"GO Tour: Kaohsiung", "GO Tour: Los Angeles"}:
+            continue
+        href = urljoin(index, event["url"])
+        if urlsplit(href).hostname != "pokemongo.com":
+            records[name] = [href, event.get("offers")]
+            continue
+        if href not in pages:
+            doc = page(href)
+            body = doc.find("article") or doc.find("main")
+            if not body or not body.get_text(strip=True):
+                raise ValueError("Empty event page")
+            pages[href] = [body.get_text(" ", strip=True),
+                           [a["href"] for a in body.select("a[href]")]]
+        records[name] = [href, event.get("offers"), pages[href]]
+    if len(records) != 2:
+        raise ValueError("Missing city")
+    return json.dumps(records, sort_keys=True)
 
 
 if __name__ == "__main__":
@@ -61,12 +66,12 @@ if __name__ == "__main__":
         listing = check()
     except Exception:
         if previous != "error" or os.getenv("TEST") == "true":
-            notify("티켓 목록 확인 실패. 로그인 상태를 확인해 주세요.")
+            notify("공식 행사 페이지 확인 실패.")
         state_file.write_text("error")
     else:
         state = hashlib.sha256(listing.encode()).hexdigest()
-        if listing and (state != previous or os.getenv("TEST") == "true"):
-            notify("LA 또는 카오슝 관련 티켓 목록이 표시되거나 변경됐습니다. 눌러 판매 여부를 확인하세요.")
+        if previous and previous != state:
+            notify("LA·카오슝 공식 행사 안내가 변경됐습니다. 눌러 티켓 판매 여부를 확인하세요.")
         elif os.getenv("TEST") == "true" or previous == "error":
-            notify("로그인된 이벤트 목록 확인 성공. 알림 연결이 정상입니다.")
+            notify("공식 행사 안내 확인 성공. ntfy 연결이 정상입니다.")
         state_file.write_text(state)

@@ -13,11 +13,9 @@ jobs:
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
-      - run: pip install selenium==4.29.0
+      - run: pip install beautifulsoup4==4.14.3
       - run: python monitor.py
         env:
-          TICKET_COOKIES: ${{ secrets.TICKET_COOKIES }}
-          READY_TEXT: ${{ secrets.READY_TEXT }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
           NTFY_URL: ${{ secrets.NTFY_URL }}
           TEST: ${{ github.event_name == 'workflow_dispatch' }}
