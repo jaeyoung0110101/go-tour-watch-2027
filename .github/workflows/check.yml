@@ -19,9 +19,17 @@ jobs:
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
           NTFY_URL: ${{ secrets.NTFY_URL }}
           TEST: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Read social feeds
+        if: ${{ !cancelled() }}
+        run: python social.py
+        env:
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          NTFY_URL: ${{ secrets.NTFY_URL }}
       - name: Save notification state
+        if: ${{ !cancelled() }}
         run: |
           git add .monitor-state
+          if test -f .social-state; then git add .social-state; fi
           if ! git diff --cached --quiet; then
             git -c user.name=monitor -c user.email=monitor@users.noreply.github.com commit -m "Update notification state"
             git push
