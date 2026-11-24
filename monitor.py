@@ -16,7 +16,7 @@ def notify(text, link=URL):
     endpoint = os.environ["NTFY_URL"].strip()
     if urlsplit(endpoint).scheme != "https":
         raise SystemExit("ntfy requires an HTTPS topic URL")
-    headers = {"Title": "Pokemon GO Tour", "Priority": "high", "Click": link}
+    headers = {"Title": "Pokemon GO Tour", "Priority": "5", "Click": link}
     if os.getenv("NTFY_TOKEN"):
         headers["Authorization"] = "Bearer " + os.environ["NTFY_TOKEN"]
     try:
